@@ -1,0 +1,18 @@
+---
+- hosts: lab
+  gather_facts: no
+  become: true
+  become_user: root
+  vars_files:
+    - ./vars/groups.yml
+  vars:
+
+  tasks:
+
+    - name: Create "{{ item.group }}" group if not present
+      group:
+         name: "{{ item.group }}"
+         state: present
+      with_items: "{{ groups }}"
+
+
