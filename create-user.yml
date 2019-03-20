@@ -1,0 +1,30 @@
+---
+- hosts: lab
+  gather_facts: no
+  become: true
+  become_user: root
+  vars_files:
+   - ./vars/users_list.yml
+  tasks:
+
+    - name: Create "{{ item.user_comment }} ({{item.username}}" if not present
+      user:
+        name: "{{ item.username }}"
+        comment: "{{ item.user_comment }}"
+        shell: /bin/bash
+        groups: "{{ item.user_groups }}"
+        state: present
+        append: yes
+        createhome: yes
+        #expires: -1
+        password: "{{ item.user_password | password_hash('sha512') }}"
+        update_password: on_create
+      with_items: "{{ users }}"
+
+    - name: make the password to expire immediately
+      command: "chage -d0 {{ item.username }}"
+      with_items:
+        - "{{ users }}"
+
+
+
