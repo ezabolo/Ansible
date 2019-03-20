@@ -1,0 +1,7 @@
+
+users:
+  - username: ezabolo
+    user_comment: Eugene Zabolo
+    user_groups: wheel
+    user_password: P@ssw@rd123!
+
