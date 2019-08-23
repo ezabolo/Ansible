@@ -1,0 +1,27 @@
+---
+servers: 
+
+  - name: "Linux Rhel 7"
+    hostname: vm1
+    num_cpus: 2
+    ram: 8096 #RAM in MB
+    disks:
+      - name: root_volume
+        mountpoint: "/"
+        size: 100 # GB
+    template: exi_rhel7 
+    description: "Linux Rhel 7 test"
+
+  - name: "Linux Rhel 6"
+    hostname: vm2
+    num_cpus: 2
+    ram: 4096 #RAM in GB
+    disks:
+      - name: root_volume
+        mountpoint: "/"
+        size: 100 # GB
+    template: exi_rhel6
+    description: "Windows Test and Util"
+
+# You can add more servers if needed below
+

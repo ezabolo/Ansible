@@ -1,0 +1,8 @@
+---
+vcenter_hostname: vcenter.example.com 
+port: 443
+datacenter: dc1
+datastore: esx_datastore01
+esx_host: hypervisor01.example.com
+
+

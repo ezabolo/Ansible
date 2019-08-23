@@ -1,0 +1,38 @@
+---
+- name: provision vms 
+  hosts: localhost
+  connection: local 
+  gather_facts: false
+  vars_files:
+    - ./vars/serverlist.yml
+    - ./vars/credentials.yml
+    - ./vars/esx_def.yml
+  
+  - name: Provisioning {{ item.name }} VM from template
+    vmware_guest:
+      validate_certs: False
+      hostname: "{{ vcenter_hostname }}"              #The fqdn of the VMware vcenter server
+      username: "{{ vcenter_user }}"                  #VMware Vcenter login
+      password: "{{ vcenter_password }}"              #Vmware Vcenter password
+      esxi_hostname: "{{ esx_host }}"                 #Host or hypervisor on which the vm will be running 
+      port:  "{{ port | default (443) }}"             #Default port for the vcenter
+      datacenter: {{ datacenter }}                    #The datacenter name  
+      datastore : {{ datastore }}                     #The datastore on which the vm will be provioned   
+      name: "{{ item.hostname }}"                     #The name of the VM 
+      template: "{{ item.template }}"                 #Template to build the machine from 
+      annotation: "{{ item.description }}"     
+      disk:
+        - size_gb: "{{ item.disk['size'] | default(30) }}"
+          type: None                                  #if None then thick provioning will be used         
+      networks:
+        - name: VM Network
+          type: dhcp
+      hardware:
+        memory_mb: "{{ item.ram | default(1024) }}"
+        num_cpus: "{{ item.num_cpus }}"
+        wait_for_ip_address: True
+        state: present
+    with_items: 
+     - "{{ servers }}"   
+
+
