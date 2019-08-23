@@ -15,7 +15,7 @@ servers:
   - name: "Linux Rhel 6"
     hostname: vm2
     num_cpus: 2
-    ram: 4096 #RAM in GB
+    ram: 4096 #RAM in MB
     disks:
       - name: root_volume
         mountpoint: "/"
