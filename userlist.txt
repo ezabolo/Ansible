@@ -1,0 +1,4 @@
+user1 => Name: Wallace John  username: jwallace secondary group: admin 
+user1 => Name: William Stacey  username: swilliam  secondary group: admin 
+user1 => Name: Coney West  username: wconey  secondary group: dba 
+

@@ -1,0 +1,19 @@
+---
+- name: installe some packages and update all packages on dev
+  hosts: dev
+  tasks: 
+   - name: install Devlopment Tools packages
+     yum: name='@Development Tools' state=present
+   - name: update all packages 
+     yum: name='*' state=latest
+- name:  Install some packages on Test
+  hosts: test
+  tasks: 
+  - name: install httpd, mod_ssl, and mariadb
+    yum: name= {{ item }} state=latest 
+    with_items: 
+     - httpd
+     - mod_ssl 
+     - mariadb
+   
+     

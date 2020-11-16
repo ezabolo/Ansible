@@ -1,0 +1,21 @@
+---
+- name: create ansible on all machines
+  hosts: all 
+  tasks: 
+    - name: create user ansible
+      user: 
+        name: ansible
+        home: /home/ansible 
+        create_home: yes
+        password: "{{ 'Redhat123' | password_hash('sha512') }}"
+        generate_ssh_key: yes
+        ssh_key_bits: 2048
+        ssh_key_file: .ssh/id_rsa
+        groups: wheel 
+        append: yes 
+    - name: append ansible key to the authorized_key on all servers   
+      authorized_key:
+        user: ansible
+        state: present
+        key: "{{ lookup('file', '/home/ansible/.ssh/id_rsa.pub') }}"
+        manage_dir: False 

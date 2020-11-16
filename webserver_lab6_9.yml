@@ -1,0 +1,42 @@
+- name: webmaster
+  hosts: dev
+  tasks: 
+  - name: create webmaster user 
+    user: 
+     name: webmaster
+     state: present
+  - name: create a directory 
+    file: 
+      mode: 2755   
+      path: /web
+      state: directory
+
+  - name: ensure httpd is installed 
+    yum: name=httpd state=present 
+  
+  - name: create symbolik link 
+    file: 
+      src: /web 
+      path: /var/www/html/web
+      state: link 
+  - name: create index.html 
+    copy: 
+      content: 'Welcome!'
+      dest: /web/index.html
+  - name: install SELinux policies
+    yum: 
+      name: policycoreutils-python
+      state: present 
+  - name: allow httpd_sys_content_t
+    sefcontext: 
+     target: '/web/(/.*)?' 
+     setype: httpd_sys_content_t
+     state: present        
+  - name: restore context
+    shell: restorecon -vR /web
+
+  - name: open up the port 80 on the firewall
+    firewalld: port=80/tcp permanent=true state=enabled immediate=yes    
+  
+  - name: ensure httpd service is runing 
+    service: name=httpd state=started 

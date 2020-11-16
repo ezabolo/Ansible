@@ -1,0 +1,21 @@
+---
+- name: create ansibleadmin on all machines
+  hosts: all 
+  tasks: 
+    - name: create user ansibleadmin
+      user: 
+        name: ansibleadmin
+        home: /home/ansibleadmin 
+        create_home: yes
+        password: "{{ 'Redhat123' | password_hash('sha512') }}"
+        generate_ssh_key: yes
+        ssh_key_bits: 2048
+        ssh_key_file: .ssh/id_rsa
+        groups: wheel 
+        append: yes 
+    - name: append ansible key to the authorized_key on all servers   
+      authorized_key:
+        user: ansibleadmin
+        state: present
+        key: "{{ lookup('file', '/home/ansibleadmin/.ssh/id_rsa.pub') }}"
+        manage_dir: False 

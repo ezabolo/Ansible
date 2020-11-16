@@ -1,0 +1,65 @@
+---
+- name: install tomcat on rhel 7 
+  hosts: 192.168.1.218
+  become: yes
+  become_user: root
+  tasks: 
+   - name: update the server
+     yum: name='*' state=latest update_cache=yes
+
+   - name: ensure unzip is installed 
+     yum: name=unzip state=present  
+
+   - name: Install Java 1.8
+     yum: name=java-1.8.0-openjdk state=present
+
+   - name: add group "tomcat"
+     group: name=tomcat
+
+   - name: add user "tomcat"
+     user: name=tomcat group=tomcat home=/opt/tomcat createhome=no
+  
+   - name: Download Tomcat
+     unarchive:
+      src: https://downloads.apache.org/tomcat/tomcat-9/v9.0.39/bin/apache-tomcat-9.0.39.zip
+      dest: /opt
+      remote_src: yes
+
+   - name: verify if the directory /opt/apache-tomcat-9.0.39 is there
+     stat: path=/opt/apache-tomcat-9.0.39 
+     register: install_dir 
+
+   - name: renaming tomcat installation directory
+     shell: mv /opt/apache-tomcat-9.0.39 /opt/tomcat
+     when: install_dir.stat.exists 
+
+   - name: Change ownership of Tomcat installation
+     file: path=/opt/tomcat owner=tomcat group=tomcat state=directory recurse=yes
+
+   - name: setup tomcat environment variable
+     copy:
+       content: 'CATALINA_HOME=/opt/tomcat/'
+       dest: /etc/profile.d/tomca.sh
+       owner: root 
+       group: root
+
+   - name: source the file 
+     shell: source /etc/profile.d/tomca.sh        
+   
+   - name: change the permission on the startup script
+     file: 
+       path: /opt/tomcat/bin/{{ item }}
+       owner: tomcat 
+       group: tomcat 
+       mode: 0755
+     with_items:
+       - catalina.sh 
+       - startup.sh   
+
+   - name: Start Tomcat
+     shell: /opt/tomcat/bin/startup.sh
+
+
+   - name: insert firewalld rule for tomcat http port
+     firewalld: port=8080/tcp permanent=true state=enabled immediate=yes 
+     

@@ -1,0 +1,11 @@
+---
+- name: create a file that contains the hostname of the controlled node
+  hosts: all 
+  tasks: 
+   - name: create file /tmp/hostname.txt 
+     copy: 
+       content: "#{{ ansible_nodename}}" 
+       dest: /tmp/hostname.txt
+       owner: root 
+       group: root 
+       mode: 0644 

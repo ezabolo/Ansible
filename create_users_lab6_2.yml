@@ -1,0 +1,23 @@
+---
+- name: create ansible on all machines
+  hosts: all 
+  vars_files: 
+   - ./userlist.yml 
+  tasks: 
+    - name: create required groups 
+      group: 
+        name: "{{ item }}" 
+      with_items: 
+        - admin 
+        - dba
+    - name: create user 
+      user: 
+        name: "{{ item.username }}"
+        comment: "{{ item.name }}"
+        home: "/home/{{ item.username }}" 
+        create_home: yes
+        password: "{{ 'Redhat123' | password_hash('sha512') }}"
+        groups: "{{ item.group }}" 
+        append: yes 
+      with_items: 
+        - "{{ users }}"    

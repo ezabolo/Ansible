@@ -1,0 +1,15 @@
+---
+- name: handling download failure 
+  hosts: localhost 
+  tasks: 
+  - name: dowloading rkhunter archive file
+    block:  
+      - get_url: 
+          url: http://downloads.sourceforge.net/project/rkhunter/rkhunter/1.4.2/rkhunter-1.4.2.tar.gz
+          dest: /tmp
+      - debug: msg="File downloaded"
+    rescue: 
+      - debug: msg="rkhunter  project site appears to be down. Try again later" 
+    always: 
+      - debug: msg="Attempt Completed"
+    delegate_to: 127.0.0.1    

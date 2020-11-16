@@ -1,0 +1,10 @@
+---
+- name: down the rootkit hunter progrm file 
+  hosts: 127.0.0.1
+  connection: local 
+  tasks: 
+  - name: download compressed arhive of rootkit hunter 
+    get_url: 
+      url: http://downloads.sourceforge.net/project/rkhunter/rkhunter/1.4.2/rkhunter-1.4.2.tar.gz
+      dest: /tmp
+      mode: 0644  

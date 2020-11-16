@@ -1,0 +1,12 @@
+---
+- hosts: all
+  become: yes
+  become_user: root
+  tasks:
+    - name: Install mlocate
+      yum: name=mlocate state=installed
+    - name: Run updatedb
+      command: /usr/bin/updatedb
+      async: 300
+      poll: 10
+      

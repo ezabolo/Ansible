@@ -1,0 +1,12 @@
+---
+users: 
+  - name: Wallace John
+    username: jwallace
+    group: admin 
+  - name: William Stacey 
+    username: swilliam
+    group: admin
+  - name: Coney West
+    username: wconey
+    group: dba   
+
