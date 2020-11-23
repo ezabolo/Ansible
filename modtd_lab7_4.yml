@@ -1,0 +1,25 @@
+---
+- hosts: all 
+  gather_facts: yes
+  tasks: 
+   - name: add content for test server /etc/motd 
+     copy: 
+      content: "Welcome to the test server {{ ansible_nodename }} !" 
+      dest: /etc/motd
+      owner: root 
+      group: root 
+      mode: 0644
+     when: "'test' in  group_names" 
+
+   - name: add content for dev server /etc/motd
+     copy:
+      content: "Welcome to the dev server {{ ansible_nodename }} !"
+      dest: /etc/motd
+      owner: root
+      group: root
+      mode: 0644
+     when: "'dev' in  group_names"
+  
+ 
+     
+       

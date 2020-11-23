@@ -1,0 +1,13 @@
+---
+- hosts: localhost
+  connection: local 
+  tasks: 
+    - replace:  
+        path: /tmp/myentree.txt
+        regexp: 'Yee'
+        replace: 'Yank'
+        owner: root
+        group: root
+        mode: '0644'
+
+

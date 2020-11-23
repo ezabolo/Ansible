@@ -1,0 +1,23 @@
+---
+- hosts: all 
+  become: yes
+  become_user: root 
+  tasks: 
+    - name: create user devops 
+      user:
+        name: devops
+        password: "{{ 'Redhat123' | password_hash('sha512') }}"   
+    - name: adding devops user in sudoers file 
+      lineinfile:      
+        path: /etc/sudoers
+        state: present
+        regexp: '^## Allow root'
+        insertafter: 'root ALL=(ALL) NOPASSWD: ALL'
+        line: 'devops ALL=(ALL) NOPASSWD: ALL' 
+        state: present
+        validate: /usr/sbin/visudo -cf %s
+    - name: ensure epel repo is installed 
+      yum: name=epel-release state=present
+    - name: install htop
+      yum: name=htop state=present  
+           

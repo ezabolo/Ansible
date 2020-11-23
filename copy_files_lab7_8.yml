@@ -1,0 +1,18 @@
+---
+- hosts: all 
+  tasks: 
+  - name: copy /etc/ansible/hosts 
+    copy: 
+     src: /etc/ansible/hosts 
+     dest: /tmp/ansible
+     owner: root 
+     group: root 
+     mode: 0644
+  - name: Install packages 
+    yum: 
+      name: 
+       - httpd 
+       - php 
+       - php-mysql 
+       - elinks
+  

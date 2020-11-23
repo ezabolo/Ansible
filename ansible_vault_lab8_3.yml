@@ -1,0 +1,29 @@
+---
+- name: create users
+  hosts: all
+  vars_files: 
+    - ./users_list.yml 
+    - /home/ansible/secrets.d/lock.yml
+  tasks: 
+    - name: create devops group 
+      group: 
+        name: devops 
+      when: "'dev' in group_names"
+    - name: create manager group
+      group: 
+        name: manager
+      when: "'prod' in group_names"
+    - name: create devs should happen on dev
+      user: 
+        name: "{{ item.username }}"
+        groups: devops
+        password: "{{ pw_dev| password_hash('sha512') }}"
+      when: ("'dev' in group_names") and ("'developer' in item.job")
+      loop: "{{users}}" 
+    - name: create managers - should happen on prod 
+      user: 
+        name: "{{ item.username }}"
+        groups: manager
+        password: "{{ pw_mgr| password_hash('sha512') }}"
+      when: ("'prod' in group_names") and ("'manager' in item.job")     
+      loop: "{{users}}"       

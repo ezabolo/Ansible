@@ -1,0 +1,14 @@
+---
+- hosts: all 
+  tasks: 
+  - name: print content of /etc/motd only if defined
+    command: cat /etc/motd
+    register: motd_c
+  - debug: var=motd_c.stdout 
+  - debug: msg="/etc/motd is empty" 
+    when: motd_c.stdout == ""  
+  - name: install httpd when the operating system is Redhat 
+    yum: 
+      name: httpd
+    when: ansible_distribution == 'RedHat' 
+

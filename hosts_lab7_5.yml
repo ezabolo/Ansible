@@ -1,0 +1,11 @@
+---
+- hosts: all 
+  gather_facts: yes
+  tasks: 
+    - name: generate the hosts file 
+      template: 
+        src: hosts.j2
+        dest: /root/myhosts
+      when: "'dev' in group_names" 
+                   
+       

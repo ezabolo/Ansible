@@ -1,0 +1,12 @@
+---
+- name: Install and configure ntp client
+  hosts: infra 
+  become: yes 
+  become_user: root
+  tasks: 
+    - name: install ntp client package 
+      yum: name=ntp state=present
+    - name: copy the config file over 
+      copy: src=/home/ansible/ntp.conf dest=/etc/ntp.conf
+    - name: restart the service ntp 
+      service: name=ntpd state=restarted  

@@ -1,0 +1,11 @@
+---
+- name: Append date to a file using a cronjob 
+  hosts: all 
+  tasks: 
+   - cron:
+      name: datejob 
+      minute: "0"
+      hour: "12"
+      user: root
+      job: "date >> /root/datefile"
+
