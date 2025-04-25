@@ -1,0 +1,107 @@
+---
+- name: Check installed packages and generate report
+  hosts: all
+  gather_facts: false
+  vars:
+    web_packages:
+      - gnome*
+      - firefox
+      - google-chrome
+      - ftp
+      - telnet
+      - nmap
+      - ImageMagick
+      - cups
+    db_packages:
+      - gnome*
+      - firefox
+      - google-chrome
+      - ftp
+      - telnet
+      - nmap
+      - cups
+    results_dir: "./results"
+    timestamp: "{{ lookup('pipe', 'date +%Y%m%d_%H%M%S') }}"
+    csv_file: "{{ results_dir }}/package_report_{{ timestamp }}.csv"
+
+  tasks:
+    - name: Create results directory if it doesn't exist
+      delegate_to: localhost
+      become: false
+      file:
+        path: "{{ results_dir }}"
+        state: directory
+      run_once: true
+
+    - name: Initialize CSV file with header
+      delegate_to: localhost
+      become: false
+      lineinfile:
+        path: "{{ csv_file }}"
+        line: "Server,Type,{{ (web_packages + db_packages) | unique | join(',') }}"
+        create: yes
+      run_once: true
+
+    - name: Determine server type and packages to check
+      set_fact:
+        server_type: "{% if 'web' in inventory_hostname | lower %}web{% elif 'db' in inventory_hostname | lower %}db{% else %}unknown{% endif %}"
+        packages_to_check: "{% if 'web' in inventory_hostname | lower %}{{ web_packages }}{% elif 'db' in inventory_hostname | lower %}{{ db_packages }}{% else %}[]{% endif %}"
+      when: "'web' in inventory_hostname | lower or 'db' in inventory_hostname | lower"
+
+    - name: Skip if server type is not web or db
+      meta: end_host
+      when: "server_type == 'unknown' or packages_to_check | length == 0"
+
+    - name: Gather package facts
+      package_facts:
+        manager: auto
+      register: package_result
+      ignore_errors: true
+
+    - name: Check for wildcard packages with shell
+      shell: rpm -qa | grep -i '{{ item }}' || true
+      register: wildcard_result
+      loop: "{{ packages_to_check | select('search', '\\*') | list }}"
+      changed_when: false
+      ignore_errors: true
+
+    - name: Set facts for wildcard packages
+      set_fact:
+        wildcard_packages: "{{ wildcard_packages | default({}) | combine({item.item: (item.stdout_lines | length > 0)}) }}"
+      loop: "{{ wildcard_result.results }}"
+
+    - name: Set facts for regular packages
+      set_fact:
+        regular_packages: "{{ regular_packages | default({}) | combine({item: (package_facts.packages[item | lower] is defined) if (package_facts.packages is defined) else false}) }}"
+      loop: "{{ packages_to_check | reject('search', '\\*') | list }}"
+      vars:
+        package_facts: "{{ package_result }}"
+      when: "package_result is defined and package_result.ansible_facts is defined"
+
+    - name: Combine package results
+      set_fact:
+        all_packages: "{{ (wildcard_packages | default({})) | combine(regular_packages | default({})) }}"
+
+    - name: Prepare CSV line
+      set_fact:
+        csv_line: "{{ inventory_hostname }},{{ server_type }}"
+      
+    - name: Add package status to CSV line
+      set_fact:
+        csv_line: "{{ csv_line }},{{ 'Installed' if all_packages[item] | default(false) else 'Not Installed' }}"
+      loop: "{{ (web_packages + db_packages) | unique }}"
+
+    - name: Append server results to CSV file
+      delegate_to: localhost
+      become: false
+      lineinfile:
+        path: "{{ csv_file }}"
+        line: "{{ csv_line }}"
+        create: yes
+
+    - name: Display completion message
+      delegate_to: localhost
+      become: false
+      debug:
+        msg: "Package check completed. Results saved to {{ csv_file }}"
+      run_once: true
