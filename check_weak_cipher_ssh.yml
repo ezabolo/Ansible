@@ -1,0 +1,59 @@
+---
+- name: Detect weak SSH algorithms and write CSV report
+  hosts: all
+  gather_facts: no
+  become: yes
+
+  vars:
+    report_path: "weak_ssh_algorithms.csv"
+
+  pre_tasks:
+    - name: Ensure CSV header exists on control node
+      delegate_to: localhost
+      become: false
+      copy:
+        dest: "{{ report_path }}"
+        content: "Name,weak ciphers list\n"
+        force: no
+
+  tasks:
+    - name: Get effective sshd configuration
+      command: sshd -T
+      register: sshd_t_output
+      changed_when: false
+      failed_when: false
+
+    - name: Extract ciphers line
+      set_fact:
+        sshd_ciphers_line: "{{ (sshd_t_output.stdout_lines | select('match', '^ciphers ') | list | first | default('')) }}"
+        sshd_kex_line: "{{ (sshd_t_output.stdout_lines | select('match', '^kexalgorithms ') | list | first | default('')) }}"
+
+    - name: Parse ciphers and kex lists
+      set_fact:
+        effective_ciphers: "{{ (sshd_ciphers_line.split(' ', 1)[1] if (sshd_ciphers_line|length)>0 else '') }}"
+        effective_kex: "{{ (sshd_kex_line.split(' ', 1)[1] if (sshd_kex_line|length)>0 else '') }}"
+
+    - name: Build list of weak items found
+      vars:
+        ciphers_list: "{{ effective_ciphers.split(',') if effective_ciphers|length>0 else [] }}"
+        weak_cbc_ciphers: "{{ ciphers_list | select('search', 'cbc$') | list }}"
+        weak_kex: "{{ ['diffie-hellman-group-exchange-sha1'] if (effective_kex is search('(^|,)(diffie-hellman-group-exchange-sha1)(,|$)')) else [] }}"
+      set_fact:
+        weak_items_found: "{{ (weak_cbc_ciphers + weak_kex) }}"
+
+    - name: Append host with weak items to CSV (if any)
+      when: weak_items_found | length > 0
+      delegate_to: localhost
+      become: false
+      lineinfile:
+        path: "{{ report_path }}"
+        create: yes
+        insertafter: EOF
+        line: "{{ inventory_hostname }},{{ weak_items_found | join(';') }}"
+        state: present
+
+    - name: Debug summary on each host
+      debug:
+        msg: >-
+          {{ 'Weak items found: ' + (weak_items_found | join(', ')) if (weak_items_found|length>0)
+          else 'No targeted weak items found' }}
