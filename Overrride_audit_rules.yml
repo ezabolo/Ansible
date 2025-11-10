@@ -1,0 +1,63 @@
+---
+- name: Replace all audit rules with base + extra
+  hosts: audit_hosts
+  become: yes
+  vars:
+    base_rules_path: /root/audit_base.txt
+    extra_rules_path: /root/audit_extra.txt
+    master_rules_path: /etc/audit/rules.d/99-master.rules
+    backup_dir: /root/audit_backup
+  tasks:
+    - name: Ensure backup directory exists
+      ansible.builtin.file:
+        path: "{{ backup_dir }}"
+        state: directory
+        mode: "0700"
+
+    - name: Backup entire /etc/audit directory
+      ansible.builtin.command: >
+        tar -czf {{ backup_dir }}/audit-backup-{{ ansible_date_time.date }}.tar.gz /etc/audit
+      args:
+        creates: "{{ backup_dir }}/audit-backup-{{ ansible_date_time.date }}.tar.gz"
+
+    - name: Remove all existing custom audit rule files
+      ansible.builtin.file:
+        path: /etc/audit/rules.d/
+        state: absent
+
+    - name: Recreate /etc/audit/rules.d directory
+      ansible.builtin.file:
+        path: /etc/audit/rules.d
+        state: directory
+        owner: root
+        group: root
+        mode: "0750"
+
+    - name: Create master ruleset from base + extra
+      ansible.builtin.shell: |
+        cat "{{ base_rules_path }}" "{{ extra_rules_path }}" > "{{ master_rules_path }}"
+      args:
+        executable: /bin/bash
+
+    - name: Clear current audit rules (runtime)
+      ansible.builtin.command: auditctl -D
+      register: clear_audit_rules
+      failed_when: false   # Don't break play if immutable mode blocks deletion
+
+    - name: Reload new audit rules
+      ansible.builtin.command: augenrules --load
+      register: reload_result
+      failed_when: reload_result.rc not in [0]
+
+    - name: Restart auditd service
+      ansible.builtin.service:
+        name: auditd
+        state: restarted
+
+    - name: Display active audit rules
+      ansible.builtin.command: auditctl -l
+      register: audit_rules_list
+
+    - name: Show audit rules summary
+      ansible.builtin.debug:
+        var: audit_rules_list.stdout_lines
