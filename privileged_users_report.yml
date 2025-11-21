@@ -20,7 +20,7 @@
 
     - name: Copy privileged_users_report script to remote hosts
       copy:
-        src: ./privileged_users_report_rhel.sh
+        src: "{{ playbook_dir }}/privileged_users_report_rhel.sh"
         dest: "{{ remote_script_path }}"
         mode: "0755"
 
@@ -29,10 +29,20 @@
       args:
         creates: "{{ remote_csv_path }}"
 
+    - name: Ensure report CSV is world-readable on remote hosts
+      file:
+        path: "{{ remote_csv_path }}"
+        mode: "0644"
+
+    - name: Get FQDN of remote host
+      command: hostname -f
+      register: fqdn_result
+      changed_when: false
+
     - name: Fetch CSV report from remote hosts to controller
       fetch:
         src: "{{ remote_csv_path }}"
-        dest: "{{ local_reports_dir }}/{{ inventory_hostname }}.csv"
+        dest: "{{ local_reports_dir }}/{{ fqdn_result.stdout }}.csv"
         flat: yes
 
 - name: Consolidate all host reports into one grouped file
