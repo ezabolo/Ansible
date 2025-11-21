@@ -1,0 +1,71 @@
+---
+- name: Generate privileged users report on all hosts
+  hosts: all
+  become: true
+  gather_facts: false
+
+  vars:
+    remote_script_path: /tmp/privileged_users_report_rhel.sh
+    remote_csv_path: /tmp/privileged_users_report.csv
+    local_reports_dir: ./reports
+
+  tasks:
+    - name: Ensure local reports directory exists (on controller)
+      delegate_to: localhost
+      run_once: true
+      file:
+        path: "{{ local_reports_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Copy privileged_users_report script to remote hosts
+      copy:
+        src: ./privileged_users_report_rhel.sh
+        dest: "{{ remote_script_path }}"
+        mode: "0755"
+
+    - name: Run privileged users report script on remote hosts
+      shell: "{{ remote_script_path }} {{ remote_csv_path }}"
+      args:
+        creates: "{{ remote_csv_path }}"
+
+    - name: Fetch CSV report from remote hosts to controller
+      fetch:
+        src: "{{ remote_csv_path }}"
+        dest: "{{ local_reports_dir }}/{{ inventory_hostname }}.csv"
+        flat: yes
+
+- name: Consolidate all host reports into one grouped file
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    local_reports_dir: ./reports
+    consolidated_csv: ./reports/all_privileged_users.txt
+
+  tasks:
+    - name: Find per-host CSV files
+      find:
+        paths: "{{ local_reports_dir }}"
+        patterns: "*.csv"
+        excludes: "all_privileged_users.*"
+        file_type: file
+      register: csv_files
+
+    - name: Fail if no CSV files were found
+      fail:
+        msg: "No per-host CSV files found to consolidate."
+      when: csv_files.matched == 0
+
+    - name: Build consolidated file in host-block format
+      shell: |
+        : > "{{ consolidated_csv }}"
+        for f in {{ csv_files.files | map(attribute='path') | sort | join(' ') }}; do
+          host="$(basename "$f" .csv)"
+          echo "$host" >> "{{ consolidated_csv }}"
+          # Skip header, append only data rows
+          tail -n +2 "$f" >> "{{ consolidated_csv }}"
+          echo "" >> "{{ consolidated_csv }}"
+        done
+      args:
+        executable: /bin/bash
