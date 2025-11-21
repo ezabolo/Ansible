@@ -67,18 +67,17 @@
         msg: "No per-host CSV files found to consolidate."
       when: csv_files.matched == 0
 
-    - name: Build consolidated CSV with header and host blocks
+    - name: Initialize consolidated CSV with header
       shell: |
-        # Write header once (must match remote CSV header)
         echo "username,uid,groups,logins_current_month,failed_logins_current_month,violation,account_expired,created_current_month" > "{{ consolidated_csv }}"
-
-        # Append blocks per host: host line, then that host's rows (no header)
-        for f in {{ csv_files.files | map(attribute='path') | sort | join(' ') }}; do
-          host="$(basename "$f" .csv)"
-          # Host line: host plus 7 empty CSV fields
-          echo "$host,,,,,,," >> "{{ consolidated_csv }}"
-          # Skip header from per-host file and append only data rows
-          tail -n +2 "$f" >> "{{ consolidated_csv }}"
-        done
       args:
         executable: /bin/bash
+
+    - name: Append host blocks to consolidated CSV
+      shell: |
+        host="{{ item.path | basename | regex_replace('\\.csv$','') }}"
+        echo "$host,,,,,,," >> "{{ consolidated_csv }}"
+        tail -n +2 "{{ item.path }}" >> "{{ consolidated_csv }}"
+      args:
+        executable: /bin/bash
+      loop: "{{ csv_files.files | sort(attribute='path') }}"
