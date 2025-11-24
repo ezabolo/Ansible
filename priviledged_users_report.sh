@@ -44,7 +44,8 @@ get_privileged_users() {
     awk -F: '($3 == 0) {print $1}' /etc/passwd
 
     # Members of typical privileged groups on RHEL (tune as needed)
-    local groups="wheel root"
+    # Include developer_limited and developer_unlimited as privileged groups
+    local groups="wheel root developer_limited developer_unlimited"
     for g in $groups; do
         if getent group "$g" >/dev/null 2>&1; then
             getent group "$g" | awk -F: '{print $4}' | tr ',' '\n' | sed '/^$/d'
@@ -82,6 +83,7 @@ account_expired() {
 
 created_this_month() {
     local user="$1"
+    CREATION_DATE="N/A"
     if ! chage -l "$user" >/dev/null 2>&1; then
         echo "unknown"
         return
@@ -91,6 +93,7 @@ created_this_month() {
     pwd_change=$(chage -l "$user" | awk -F: '/Last password change/ {gsub(/^ +/, "", $2); print $2}')
     if [[ -z "$pwd_change" || "$pwd_change" == "never" ]]; then
         echo "unknown"
+        CREATION_DATE="N/A"
         return
     fi
 
@@ -100,10 +103,13 @@ created_this_month() {
 
     if [[ -z "$acct_ym" ]]; then
         echo "unknown"
+        CREATION_DATE="N/A"
     elif [[ "$acct_ym" == "$now_ym" ]]; then
         echo "yes"
+        CREATION_DATE=$(date -d "$pwd_change" +%Y-%m-%d 2>/dev/null || echo "$pwd_change")
     else
         echo "no"
+        CREATION_DATE="N/A"
     fi
 }
 
@@ -171,7 +177,7 @@ mapfile -t PRIV_USERS < <(get_privileged_users | sort -u)
 
 # CSV header
 {
-    echo "username,uid,primary_group,groups,logins_current_month,failed_logins_current_month,violation,account_expired,created_current_month"
+    echo "username,uid,groups,logins_current_month,failed_logins_current_month,violation,account_expired,created_current_month,creation_date"
 } > "$OUTPUT_FILE"
 
 for user in "${PRIV_USERS[@]}"; do
@@ -198,8 +204,6 @@ for user in "${PRIV_USERS[@]}"; do
         printf ","
         csv_escape "$uid"
         printf ","
-        csv_escape "$primary_group"
-        printf ","
         csv_escape "$groups"
         printf ","
         csv_escape "$logins"
@@ -211,6 +215,8 @@ for user in "${PRIV_USERS[@]}"; do
         csv_escape "$expired"
         printf ","
         csv_escape "$created_month"
+        printf ","
+        csv_escape "$CREATION_DATE"
         printf "\n"
     } >> "$OUTPUT_FILE"
 
