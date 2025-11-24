@@ -87,33 +87,49 @@ account_expired() {
 created_this_month() {
     local user="$1"
     CREATION_DATE="N/A"
-    if ! chage -l "$user" >/dev/null 2>&1; then
-        echo "unknown"
-        return
-    fi
 
-    local pwd_change
-    pwd_change=$(chage -l "$user" | awk -F: '/Last password change/ {gsub(/^ +/, "", $2); print $2}')
-    if [[ -z "$pwd_change" || "$pwd_change" == "never" ]]; then
-        echo "unknown"
-        CREATION_DATE="N/A"
-        return
-    fi
+    # We derive "creation" from useradd entries in /var/log/messages* for the current month.
+    local month_abbr year
+    month_abbr=$(date +%b)
+    year=$(date +%Y)
 
-    local acct_ym now_ym
-    acct_ym=$(date -d "$pwd_change" +%Y-%m 2>/dev/null || echo "")
-    now_ym=$(date +%Y-%m)
+    local found_line=""
+    # Iterate over current and rotated message logs
+    for log in /var/log/messages /var/log/messages-*; do
+        [[ -f "$log" ]] || continue
 
-    if [[ -z "$acct_ym" ]]; then
-        echo "unknown"
-        CREATION_DATE="N/A"
-    elif [[ "$acct_ym" == "$now_ym" ]]; then
-        echo "yes"
-        CREATION_DATE=$(date -d "$pwd_change" +%Y-%m-%d 2>/dev/null || echo "$pwd_change")
-    else
+        local line=""
+        if [[ "$log" == *.gz ]] && command -v zgrep >/dev/null 2>&1; then
+            line=$(zgrep "^$month_abbr " "$log" 2>/dev/null | grep " useradd" | grep "name=$user" | head -n 1 || true)
+        else
+            line=$(grep "^$month_abbr " "$log" 2>/dev/null | grep " useradd" | grep "name=$user" | head -n 1 || true)
+        fi
+
+        if [[ -n "$line" ]]; then
+            found_line="$line"
+            break
+        fi
+    done
+
+    if [[ -z "$found_line" ]]; then
+        # No useradd log for this user in the current month
         echo "no"
         CREATION_DATE="N/A"
+        return
     fi
+
+    # Syslog format: "Mon DD HH:MM:SS host ... useradd[PID]: new user: name=username ..."
+    local m d t
+    m=$(printf '%s\n' "$found_line" | awk '{print $1}')
+    d=$(printf '%s\n' "$found_line" | awk '{print $2}')
+    t=$(printf '%s\n' "$found_line" | awk '{print $3}')
+
+    # Build a YYYY-MM-DD date; syslog usually omits year, so we use current year.
+    local dt
+    dt=$(date -d "$m $d $year $t" +%Y-%m-%d 2>/dev/null || printf '%s %s' "$m" "$d")
+
+    CREATION_DATE="$dt"
+    echo "yes"
 }
 
 log_counts_for_user_file() {
