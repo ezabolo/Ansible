@@ -22,6 +22,9 @@ set -euo pipefail
 
 OUTPUT_FILE="${1:-/tmp/privileged_users_report.csv}"
 
+# Global default for creation date (used with set -u)
+CREATION_DATE="N/A"
+
 # --- Helpers ---------------------------------------------------------------
 
 csv_escape() {
@@ -198,6 +201,7 @@ for user in "${PRIV_USERS[@]}"; do
 
     expired=$(account_expired "$user")
     created_month=$(created_this_month "$user")
+    CREATION_DATE=${CREATION_DATE:-N/A}
 
     {
         csv_escape "$user"
