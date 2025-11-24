@@ -69,14 +69,14 @@
 
     - name: Initialize consolidated CSV with header
       shell: |
-        echo "username,uid,groups,logins_current_month,failed_logins_current_month,violation,account_expired,created_current_month" > "{{ consolidated_csv }}"
+        echo "username,uid,groups,logins_current_month,failed_logins_current_month,violation,account_expired,created_current_month,creation_date" > "{{ consolidated_csv }}"
       args:
         executable: /bin/bash
 
     - name: Append host blocks to consolidated CSV
       shell: |
         host="{{ item.path | basename | regex_replace('\\.csv$','') }}"
-        echo "$host,,,,,,," >> "{{ consolidated_csv }}"
+        echo "$host,,,,,,,," >> "{{ consolidated_csv }}"
         tail -n +2 "{{ item.path }}" >> "{{ consolidated_csv }}"
       args:
         executable: /bin/bash
