@@ -1,245 +1,81 @@
-#!/usr/bin/env bash
-#
-# privileged_users_report_rhel.sh
-#
-# Generate a CSV report of privileged users on this RHEL-like system.
-# For each privileged user:
-#   - username, uid
-#   - primary group
-#   - list of all groups
-#   - number of successful logins in the current month
-#   - number of failed logins in the current month
-#   - violation flag (any failed login attempts)
-#   - account expired or not
-#   - account created this month or not (approx via password change date)
-#
-# Usage:
-#   ./privileged_users_report_rhel.sh [output_csv_file]
-#
-# Default output: /tmp/privileged_users_report.csv
+---
+- name: Generate privileged users report on all hosts
+  hosts: all
+  become: true
+  gather_facts: false
 
-set -euo pipefail
+  vars:
+    remote_script_path: /tmp/privileged_users_report_rhel.sh
+    remote_csv_path: /tmp/privileged_users_report.csv
+    local_reports_dir: ./reports
 
-OUTPUT_FILE="${1:-/tmp/privileged_users_report.csv}"
+  tasks:
+    - name: Ensure local reports directory exists (on controller)
+      delegate_to: localhost
+      run_once: true
+      file:
+        path: "{{ local_reports_dir }}"
+        state: directory
+        mode: "0755"
 
-# Global default for creation date (used with set -u)
-CREATION_DATE="N/A"
+    - name: Copy privileged_users_report script to remote hosts
+      copy:
+        src: "{{ playbook_dir }}/privileged_users_report_rhel.sh"
+        dest: "{{ remote_script_path }}"
+        mode: "0755"
 
-# --- Helpers ---------------------------------------------------------------
+    - name: Run privileged users report script on remote hosts
+      shell: "{{ remote_script_path }} {{ remote_csv_path }}"
 
-csv_escape() {
-    # Escape a value for CSV (wrap in quotes, double any internal quotes)
-    local s="${1//\"/\"\"}"
-    printf '"%s"' "$s"
-}
+    - name: Ensure report CSV is world-readable on remote hosts
+      file:
+        path: "{{ remote_csv_path }}"
+        mode: "0644"
 
-detect_auth_source() {
-    # RHEL/CentOS/Rocky/Alma: /var/log/secure is standard
-    if [[ -f /var/log/secure ]]; then
-        echo "/var/log/secure"
-    else
-        echo ""
-    fi
-}
+    - name: Get FQDN of remote host
+      command: hostname -f
+      register: fqdn_result
+      changed_when: false
 
-get_privileged_users() {
-    # UID 0 users
-    awk -F: '($3 == 0) {print $1}' /etc/passwd
+    - name: Fetch CSV report from remote hosts to controller
+      fetch:
+        src: "{{ remote_csv_path }}"
+        dest: "{{ local_reports_dir }}/{{ fqdn_result.stdout }}.csv"
+        flat: yes
 
-    # Members of typical privileged groups on RHEL (tune as needed)
-    # Include developer_limited and developer_unlimited as privileged groups
-    local groups="wheel root developer_limited developer_unlimited"
-    for g in $groups; do
-        if getent group "$g" >/dev/null 2>&1; then
-            getent group "$g" | awk -F: '{print $4}' | tr ',' '\n' | sed '/^$/d'
-        fi
-    done
-}
+- name: Consolidate all host reports into one grouped file
+  hosts: localhost
+  gather_facts: false
 
-account_expired() {
-    local user="$1"
-    if ! chage -l "$user" >/dev/null 2>&1; then
-        echo "unknown"
-        return
-    fi
+  vars:
+    local_reports_dir: ./reports
+    consolidated_csv: ./reports/all_privileged_users.csv
 
-    local exp
-    exp=$(chage -l "$user" | awk -F: '/Account expires/ {gsub(/^ +/, "", $2); print $2}')
-    if [[ -z "$exp" || "$exp" == "never" ]]; then
-        echo "no"
-        return
-    fi
+  tasks:
+    - name: Find per-host CSV files
+      find:
+        paths: "{{ local_reports_dir }}"
+        patterns: "*.csv"
+        excludes: "all_privileged_users.*"
+        file_type: file
+      register: csv_files
 
-    local now_epoch exp_epoch
-    now_epoch=$(date +%s)
-    if ! exp_epoch=$(date -d "$exp" +%s 2>/dev/null); then
-        echo "unknown"
-        return
-    fi
+    - name: Fail if no CSV files were found
+      fail:
+        msg: "No per-host CSV files found to consolidate."
+      when: csv_files.matched == 0
 
-    if (( exp_epoch < now_epoch )); then
-        echo "yes"
-    else
-        echo "no"
-    fi
-}
+    - name: Initialize consolidated CSV with header
+      shell: |
+        echo "username,uid,groups,logins_current_month,failed_logins_current_month,violation,account_expired,created_current_month,creation_date" > "{{ consolidated_csv }}"
+      args:
+        executable: /bin/bash
 
-created_this_month() {
-    local user="$1"
-    CREATION_DATE="N/A"
-
-    # We derive "creation" from useradd entries in /var/log/messages* for the current month.
-    local month_abbr year
-    month_abbr=$(date +%b)
-    year=$(date +%Y)
-
-    local found_line=""
-    # Iterate over current and rotated message logs
-    for log in /var/log/messages /var/log/messages-*; do
-        [[ -f "$log" ]] || continue
-
-        local line=""
-        if [[ "$log" == *.gz ]] && command -v zgrep >/dev/null 2>&1; then
-            line=$(zgrep "^$month_abbr " "$log" 2>/dev/null | grep " useradd" | grep "name=$user" | head -n 1 || true)
-        else
-            line=$(grep "^$month_abbr " "$log" 2>/dev/null | grep " useradd" | grep "name=$user" | head -n 1 || true)
-        fi
-
-        if [[ -n "$line" ]]; then
-            found_line="$line"
-            break
-        fi
-    done
-
-    if [[ -z "$found_line" ]]; then
-        # No useradd log for this user in the current month
-        echo "no"
-        CREATION_DATE="N/A"
-        return
-    fi
-
-    # Syslog format: "Mon DD HH:MM:SS host ... useradd[PID]: new user: name=username ..."
-    local m d t
-    m=$(printf '%s\n' "$found_line" | awk '{print $1}')
-    d=$(printf '%s\n' "$found_line" | awk '{print $2}')
-    t=$(printf '%s\n' "$found_line" | awk '{print $3}')
-
-    # Build a YYYY-MM-DD date; syslog usually omits year, so we use current year.
-    local dt
-    dt=$(date -d "$m $d $year $t" +%Y-%m-%d 2>/dev/null || printf '%s %s' "$m" "$d")
-
-    CREATION_DATE="$dt"
-    echo "yes"
-}
-
-log_counts_for_user_file() {
-    # Args: user log_file
-    local user="$1"
-    local logfile="$2"
-    local month_abbr
-    month_abbr=$(date +%b)
-
-    local success fails
-
-    # Successful SSH logins
-    success=$(grep -E "sshd\[.*\]: Accepted (password|publickey)" "$logfile" 2>/dev/null \
-              | grep " $month_abbr " \
-              | grep -w " $user" \
-              | wc -l || echo 0)
-
-    # Failed SSH logins
-    fails=$(grep -E "sshd\[.*\]: Failed password" "$logfile" 2>/dev/null \
-            | grep " $month_abbr " \
-            | grep -w " $user" \
-            | wc -l || echo 0)
-
-    echo "$success" "$fails"
-}
-
-log_counts_for_user_journal() {
-    # Args: user
-    local user="$1"
-    local since
-    since="$(date +%Y-%m-01)"
-
-    local success fails
-    success=$(journalctl -u sshd -S "$since" 2>/dev/null \
-              | grep -E "Accepted (password|publickey)" \
-              | grep -w " $user" \
-              | wc -l || echo 0)
-
-    fails=$(journalctl -u sshd -S "$since" 2>/dev/null \
-            | grep -E "Failed password" \
-            | grep -w " $user" \
-            | wc -l || echo 0)
-
-    echo "$success" "$fails"
-}
-
-log_counts_for_user() {
-    # Wrapper that prefers /var/log/secure but falls back to journalctl.
-    local user="$1"
-    local logfile="$2"
-
-    if [[ -n "$logfile" ]]; then
-        log_counts_for_user_file "$user" "$logfile"
-    else
-        log_counts_for_user_journal "$user"
-    fi
-}
-
-# --- Main ------------------------------------------------------------------
-
-AUTH_LOG_FILE=$(detect_auth_source)
-
-mapfile -t PRIV_USERS < <(get_privileged_users | sort -u)
-
-# CSV header
-{
-    echo "username,uid,groups,logins_current_month,failed_logins_current_month,violation,account_expired,created_current_month,creation_date"
-} > "$OUTPUT_FILE"
-
-for user in "${PRIV_USERS[@]}"; do
-    if ! getent passwd "$user" >/dev/null 2>&1; then
-        continue
-    fi
-
-    uid=$(id -u "$user" 2>/dev/null || echo "")
-    primary_group=$(id -gn "$user" 2>/dev/null || echo "")
-    groups=$(id -nG "$user" 2>/dev/null | tr ' ' ';' || echo "")
-
-    read -r logins fails <<<"$(log_counts_for_user "$user" "$AUTH_LOG_FILE")"
-
-    violation="no"
-    if [[ "$fails" -gt 0 ]]; then
-        violation="yes"
-    fi
-
-    expired=$(account_expired "$user")
-    created_month=$(created_this_month "$user")
-    CREATION_DATE=${CREATION_DATE:-N/A}
-
-    {
-        csv_escape "$user"
-        printf ","
-        csv_escape "$uid"
-        printf ","
-        csv_escape "$groups"
-        printf ","
-        csv_escape "$logins"
-        printf ","
-        csv_escape "$fails"
-        printf ","
-        csv_escape "$violation"
-        printf ","
-        csv_escape "$expired"
-        printf ","
-        csv_escape "$created_month"
-        printf ","
-        csv_escape "$CREATION_DATE"
-        printf "\n"
-    } >> "$OUTPUT_FILE"
-
-done
-
-echo "Report written to: $OUTPUT_FILE"
+    - name: Append host blocks to consolidated CSV
+      shell: |
+        host="{{ item.path | basename | regex_replace('\\.csv$','') }}"
+        echo "$host,,,,,,,," >> "{{ consolidated_csv }}"
+        tail -n +2 "{{ item.path }}" >> "{{ consolidated_csv }}"
+      args:
+        executable: /bin/bash
+      loop: "{{ csv_files.files | sort(attribute='path') }}"
