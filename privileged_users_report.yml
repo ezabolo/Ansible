@@ -26,8 +26,6 @@
 
     - name: Run privileged users report script on remote hosts
       shell: "{{ remote_script_path }} {{ remote_csv_path }}"
-      args:
-        creates: "{{ remote_csv_path }}"
 
     - name: Ensure report CSV is world-readable on remote hosts
       file:
