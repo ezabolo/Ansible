@@ -88,48 +88,49 @@ created_this_month() {
     local user="$1"
     CREATION_DATE="N/A"
 
-    # We derive "creation" from useradd entries in /var/log/messages* for the current month.
+    # Derive "creation" from useradd entries in /var/log/secure* for the current month.
     local month_abbr year
     month_abbr=$(date +%b)
     year=$(date +%Y)
 
-    local found_line=""
-    # Iterate over current and rotated message logs
-    for log in /var/log/messages /var/log/messages-*; do
+    # Iterate over current and rotated secure logs
+    for log in /var/log/secure /var/log/secure-*; do
         [[ -f "$log" ]] || continue
 
-        local line=""
+        # Choose grep/zgrep depending on compression
         if [[ "$log" == *.gz ]] && command -v zgrep >/dev/null 2>&1; then
-            line=$(zgrep "^$month_abbr " "$log" 2>/dev/null | grep " useradd" | grep "name=$user" | head -n 1 || true)
+            cmd=(zgrep "useradd" "$log")
         else
-            line=$(grep "^$month_abbr " "$log" 2>/dev/null | grep " useradd" | grep "name=$user" | head -n 1 || true)
+            cmd=(grep "useradd" "$log")
         fi
 
-        if [[ -n "$line" ]]; then
-            found_line="$line"
-            break
-        fi
+        # Read matching lines and look for this user in the current month
+        while IFS= read -r line; do
+            [[ -z "$line" ]] && continue
+            # Must contain name=<user>
+            printf '%s\n' "$line" | grep -q "name=$user" || continue
+
+            # Syslog format: "Mon DD HH:MM:SS host ..."
+            local m d t
+            m=$(printf '%s\n' "$line" | awk '{print $1}')
+            d=$(printf '%s\n' "$line" | awk '{print $2}')
+            t=$(printf '%s\n' "$line" | awk '{print $3}')
+
+            # Only consider entries from the current month
+            [[ "$m" == "$month_abbr" ]] || continue
+
+            local dt
+            dt=$(date -d "$m $d $year $t" +%Y-%m-%d 2>/dev/null || printf '%s %s' "$m" "$d")
+
+            CREATION_DATE="$dt"
+            echo "yes"
+            return
+        done < <("${cmd[@]}" 2>/dev/null || true)
     done
 
-    if [[ -z "$found_line" ]]; then
-        # No useradd log for this user in the current month
-        echo "no"
-        CREATION_DATE="N/A"
-        return
-    fi
-
-    # Syslog format: "Mon DD HH:MM:SS host ... useradd[PID]: new user: name=username ..."
-    local m d t
-    m=$(printf '%s\n' "$found_line" | awk '{print $1}')
-    d=$(printf '%s\n' "$found_line" | awk '{print $2}')
-    t=$(printf '%s\n' "$found_line" | awk '{print $3}')
-
-    # Build a YYYY-MM-DD date; syslog usually omits year, so we use current year.
-    local dt
-    dt=$(date -d "$m $d $year $t" +%Y-%m-%d 2>/dev/null || printf '%s %s' "$m" "$d")
-
-    CREATION_DATE="$dt"
-    echo "yes"
+    # No matching useradd log for this user in current month
+    echo "no"
+    CREATION_DATE="N/A"
 }
 
 log_counts_for_user_file() {
