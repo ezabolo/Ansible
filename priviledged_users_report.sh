@@ -88,42 +88,48 @@ created_this_month() {
     local user="$1"
     CREATION_DATE="N/A"
 
-    # Derive "creation" from useradd "new user" entries in /var/log/secure* for the current month.
+    # Derive "creation" from useradd "new user" entries in /var/log/secure* for the
+    # *current* month only. Older creations get CREATION_DATE=N/A.
     local month_abbr year
-    month_abbr=$(date +%b)
-    year=$(date +%Y)
+    month_abbr=$(date +%b)   # e.g. Nov
+    year=$(date +%Y)         # e.g. 2025
 
-    # Get first matching useradd line for this user (current and rotated secure logs)
-    local line
-    line=$(grep -h "useradd" /var/log/secure /var/log/secure-* 2>/dev/null \
-           | grep "new user:" \
-           | grep "name=$user" \
-           | head -n 1 || true)
+    # Search current and rotated secure logs for this user's useradd entry
+    local log
+    for log in /var/log/secure /var/log/secure-*; do
+        [[ -f "$log" ]] || continue
 
-    if [[ -z "$line" ]]; then
-        echo "no"
-        CREATION_DATE="N/A"
+        local line
+        line=$(grep -h "useradd" "$log" 2>/dev/null \
+               | grep "new user:" \
+               | grep "name=$user" \
+               | head -n 1 || true)
+
+        [[ -z "$line" ]] && continue
+
+        # Expected format: "Mon DD HH:MM:SS host useradd[PID]: new user: name=USER, ..."
+        local m d t
+        m=$(printf '%s\n' "$line" | awk '{print $1}')
+        d=$(printf '%s\n' "$line" | awk '{print $2}')
+        t=$(printf '%s\n' "$line" | awk '{print $3}')
+
+        # Only accept entries from the CURRENT month
+        if [[ "$m" != "$month_abbr" ]]; then
+            continue
+        fi
+
+        # Build DD-MM-YYYY creation date
+        local dt
+        dt=$(date -d "$m $d $year $t" +%d-%m-%Y 2>/dev/null || printf '%s-%s-%s' "$d" "$m" "$year")
+
+        CREATION_DATE="$dt"
+        echo "yes"
         return
-    fi
+    done
 
-    # Expected format: "Mon DD HH:MM:SS host useradd[PID]: new user: name=USER, ..."
-    local m d t
-    m=$(printf '%s\n' "$line" | awk '{print $1}')
-    d=$(printf '%s\n' "$line" | awk '{print $2}')
-    t=$(printf '%s\n' "$line" | awk '{print $3}')
-
-    # Only consider entries from the current month
-    if [[ "$m" != "$month_abbr" ]]; then
-        echo "no"
-        CREATION_DATE="N/A"
-        return
-    fi
-
-    local dt
-    dt=$(date -d "$m $d $year $t" +%Y-%m-%d 2>/dev/null || printf '%s %s' "$m" "$d")
-
-    CREATION_DATE="$dt"
-    echo "yes"
+    # No matching useradd log for this user in the current month
+    echo "no"
+    CREATION_DATE="N/A"
 }
 
 log_counts_for_user_file() {
