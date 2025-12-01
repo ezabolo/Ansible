@@ -177,15 +177,33 @@ log_counts_for_user_journal() {
 }
 
 log_counts_for_user() {
-    # Wrapper that prefers /var/log/secure but falls back to journalctl.
+    # Count successful logins using `last` for the current month/year,
+    # and failed SSH logins using the existing log helpers.
     local user="$1"
     local logfile="$2"
 
+    local month_abbr year
+    month_abbr=$(date +%b)
+    year=$(date +%Y)
+
+    local logins fails
+
+    # Successful logins from wtmp via `last`.
+    # Example `last -F` output fields:
+    # 1: user, 2: tty, 3: host, 4: Mon, 5: DD, 6: HH:MM:SS, 7: YYYY, ...
+    logins=$(last -F "$user" 2>/dev/null \
+             | awk -v m="$month_abbr" -v y="$year" '($4 == m && $7 == y) {c++} END {print c+0}' )
+
+    # Failed SSH logins remain based on /var/log/secure or journalctl.
     if [[ -n "$logfile" ]]; then
-        log_counts_for_user_file "$user" "$logfile"
+        # log_counts_for_user_file returns: success fails
+        read -r _ fails <<<"$(log_counts_for_user_file "$user" "$logfile")"
     else
-        log_counts_for_user_journal "$user"
+        # log_counts_for_user_journal returns: success fails
+        read -r _ fails <<<"$(log_counts_for_user_journal "$user")"
     fi
+
+    echo "$logins" "$fails"
 }
 
 # --- Main ------------------------------------------------------------------
