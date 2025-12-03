@@ -22,8 +22,7 @@ set -euo pipefail
 
 OUTPUT_FILE="${1:-/tmp/privileged_users_report.csv}"
 
-# Global default for creation date (used with set -u)
-CREATION_DATE="N/A"
+CREATION_DATE="N/A"  # legacy; no longer relied on for output
 
 # --- Helpers ---------------------------------------------------------------
 
@@ -84,22 +83,17 @@ account_expired() {
     fi
 }
 
-created_this_month() {
+_find_creation_log_line_current_month() {
+    # Helper: find the first useradd "new user" line for this user in the current month.
     local user="$1"
-    CREATION_DATE="N/A"
-
-    # Derive "creation" from useradd "new user" entries in /var/log/secure* for the
-    # *current* month only. Older creations get CREATION_DATE=N/A.
     local month_abbr year
-    month_abbr=$(date +%b)   # e.g. Nov
-    year=$(date +%Y)         # e.g. 2025
+    month_abbr=$(date +%b)
+    year=$(date +%Y)  # year not used in matching, only for reference
 
-    # Search current and rotated secure logs for this user's useradd entry
-    local log
+    local log line
     for log in /var/log/secure /var/log/secure-*; do
         [[ -f "$log" ]] || continue
 
-        local line
         line=$(grep -h "useradd" "$log" 2>/dev/null \
                | grep "new user:" \
                | grep "name=$user" \
@@ -107,29 +101,45 @@ created_this_month() {
 
         [[ -z "$line" ]] && continue
 
-        # Expected format: "Mon DD HH:MM:SS host useradd[PID]: new user: name=USER, ..."
-        local m d t
+        # Check month field matches current month
+        local m
         m=$(printf '%s\n' "$line" | awk '{print $1}')
-        d=$(printf '%s\n' "$line" | awk '{print $2}')
-        t=$(printf '%s\n' "$line" | awk '{print $3}')
+        [[ "$m" != "$month_abbr" ]] && continue
 
-        # Only accept entries from the CURRENT month
-        if [[ "$m" != "$month_abbr" ]]; then
-            continue
-        fi
-
-        # Build DD-MM-YYYY creation date
-        local dt
-        dt=$(date -d "$m $d $year $t" +%d-%m-%Y 2>/dev/null || printf '%s-%s-%s' "$d" "$m" "$year")
-
-        CREATION_DATE="$dt"
-        echo "yes"
+        printf '%s\n' "$line"
         return
     done
 
-    # No matching useradd log for this user in the current month
-    echo "no"
-    CREATION_DATE="N/A"
+    return 1
+}
+
+created_this_month() {
+    local user="$1"
+    if _find_creation_log_line_current_month "$user" >/dev/null 2>&1; then
+        echo "yes"
+    else
+        echo "no"
+    fi
+}
+
+creation_date() {
+    local user="$1"
+    local line
+    if ! line=$(_find_creation_log_line_current_month "$user" 2>/dev/null); then
+        echo "N/A"
+        return
+    fi
+
+    # Expected format: "Mon DD HH:MM:SS host useradd[PID]: new user: name=USER, ..."
+    local m d t year
+    m=$(printf '%s\n' "$line" | awk '{print $1}')
+    d=$(printf '%s\n' "$line" | awk '{print $2}')
+    t=$(printf '%s\n' "$line" | awk '{print $3}')
+    year=$(date +%Y)
+
+    local dt
+    dt=$(date -d "$m $d $year $t" +%d-%m-%Y 2>/dev/null || printf '%s-%s-%s' "$d" "$m" "$year")
+    echo "$dt"
 }
 
 log_counts_for_user_file() {
@@ -177,22 +187,26 @@ log_counts_for_user_journal() {
 }
 
 log_counts_for_user() {
-    # Count successful logins using `last` for the current month/year,
+    # Count successful logins using `last -Fi` for the current month/year,
     # and failed SSH logins using the existing log helpers.
     local user="$1"
     local logfile="$2"
 
-    local month_abbr year
-    month_abbr=$(date +%b)
-    year=$(date +%Y)
+    local cur_month cur_year
+    cur_month=$(date +%b)   # e.g. "Dec"
+    cur_year=$(date +%Y)    # e.g. "2025"
 
     local logins fails
 
-    # Successful logins from wtmp via `last`.
-    # Example `last -F` output fields:
-    # 1: user, 2: tty, 3: host, 4: Mon, 5: DD, 6: HH:MM:SS, 7: YYYY, ...
-    logins=$(last -F "$user" 2>/dev/null \
-             | awk -v m="$month_abbr" -v y="$year" '($4 == m && $7 == y) {c++} END {print c+0}' )
+    # Successful logins from wtmp via `last -Fi`.
+    # Your tested format:
+    # 1:user 2:tty 3:host 4:weekday 5:month 6:day 7:time 8:year ...
+    logins=$(last -Fi "$user" 2>/dev/null \
+             | awk -v m="$cur_month" -v y="$cur_year" -v u="$user" '
+                 /wtmp begins/ { next }
+                 $1 == u && $5 == m && $8 == y { c++ }
+                 END { print c+0 }
+             ')
 
     # Failed SSH logins remain based on /var/log/secure or journalctl.
     if [[ -n "$logfile" ]]; then
@@ -235,7 +249,7 @@ for user in "${PRIV_USERS[@]}"; do
 
     expired=$(account_expired "$user")
     created_month=$(created_this_month "$user")
-    CREATION_DATE=${CREATION_DATE:-N/A}
+    creation_date_val=$(creation_date "$user")
 
     {
         csv_escape "$user"
@@ -254,7 +268,7 @@ for user in "${PRIV_USERS[@]}"; do
         printf ","
         csv_escape "$created_month"
         printf ","
-        csv_escape "$CREATION_DATE"
+        csv_escape "$creation_date_val"
         printf "\n"
     } >> "$OUTPUT_FILE"
 
