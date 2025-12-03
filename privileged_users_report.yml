@@ -67,15 +67,17 @@
 
     - name: Initialize consolidated CSV with header
       shell: |
-        echo "username,uid,groups,logins_current_month,failed_logins_current_month,violation,account_expired,created_current_month,creation_date" > "{{ consolidated_csv }}"
+        echo "machine,username,uid,groups,logins_current_month,failed_logins_current_month,violation,account_expired,created_current_month,creation_date" > "{{ consolidated_csv }}"
       args:
         executable: /bin/bash
 
-    - name: Append host blocks to consolidated CSV
+    - name: Append per-host rows with machine column
       shell: |
         host="{{ item.path | basename | regex_replace('\\.csv$','') }}"
-        echo "$host,,,,,,,," >> "{{ consolidated_csv }}"
-        tail -n +2 "{{ item.path }}" >> "{{ consolidated_csv }}"
+        tail -n +2 "{{ item.path }}" | while IFS= read -r line; do
+          [ -z "$line" ] && continue
+          echo "\"$host\",$line" >> "{{ consolidated_csv }}"
+        done
       args:
         executable: /bin/bash
       loop: "{{ csv_files.files | sort(attribute='path') }}"
